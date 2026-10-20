@@ -33,21 +33,40 @@ public class ChatController {
             @RequestBody MessageRequest request
     ) {
 
+        // Validate the destination room ID
+        if (roomId == null || roomId.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Room ID must not be empty");
+        }
+
+        if (request == null
+                || request.getRoomId() == null
+                || request.getRoomId().isBlank()) {
+            throw new IllegalArgumentException(
+                    "Message room ID must not be empty");
+        }
+
+        // Prevent saving a message to a different room
+        if (!roomId.equals(request.getRoomId())) {
+            throw new IllegalArgumentException(
+                    "Message room ID does not match destination room");
+        }
+
 
         Room room = roomRepository.findByRoomId(request.getRoomId());
 
+        if (room == null) {
+            throw new IllegalArgumentException("Room not found");
+        }
+
         Message message = new Message();
+        message.ensureId();
         message.setContent(request.getContent());
         message.setSender(request.getSender());
         message.setTimeStamp(LocalDateTime.now());
 
-        if (room != null) {
-            room.getMessages().add(message);
-            roomRepository.save(room);
-        } else {
-            throw new RuntimeException("room not found!!");
-        }
-
+        room.getMessages().add(message);
+        roomRepository.save(room);
 
         return message;
     }

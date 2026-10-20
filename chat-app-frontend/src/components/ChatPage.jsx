@@ -6,7 +6,7 @@ import {
   MdNotificationsNone,
   MdSend,
 } from "react-icons/md";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import EmojiPicker from "emoji-picker-react";
 import useChatContext from "../context/ChatContext";
 import { useNavigate } from "react-router-dom";
@@ -38,6 +38,13 @@ function playMessageSound() {
   }
 }
 
+function getMessageKey(message) {
+  return (
+    message.id ||
+    JSON.stringify([message.timeStamp, message.sender, message.content])
+  );
+}
+
 const ChatPage = () => {
   const {
     connected,
@@ -48,7 +55,25 @@ const ChatPage = () => {
   } = useChatContext();
   const navigate = useNavigate();
 
+  //Pagination of messages
+  const PAGE_SIZE = 20;
   const [messages, setMessages] = useState([]);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+
+  const loadingRef = useRef(false);
+  const hasMoreRef = useRef(true);
+  const cursorRef = useRef(null);
+  const activeRoomRef = useRef(roomId);
+  const paginationGenerationRef = useRef(0);
+
+  const isPrependingRef = useRef(false);
+  const previousScrollHeightRef = useRef(0);
+  const previousScrollTopRef = useRef(0);
+  const shouldAutoScrollRef = useRef(true);
+  const initialLoadRef = useRef(true);
+  const initialLoadCompletedRef = useRef(false);
+
+
   const [input, setInput] = useState(() => {
     return localStorage.getItem(`chatDraft-${roomId}`) || "";
   });
@@ -74,7 +99,6 @@ const ChatPage = () => {
   const chatBoxRef = useRef(null);
   const emojiPickerRef = useRef(null);
   const emojiButtonRef = useRef(null);
-  const previousScrollTopRef = useRef(0);
   const [stompClient, setStompClient] = useState(null);
 
   const messageDraftKey = `chatDraft-${roomId}`;
@@ -140,28 +164,126 @@ const ChatPage = () => {
     return () => document.removeEventListener("keydown", handleEscape);
   }, [showEmojiPicker]);
 
+  //Pagination
   useEffect(() => {
-    async function loadMessages() {
-      try {
-        const data = await getMessagesApi(roomId);
-        setMessages(data);
-      } catch (error) {
+  if (!connected || !roomId) return;
+
+  let cancelled = false;
+  const generation = ++paginationGenerationRef.current;
+
+  activeRoomRef.current = roomId;
+  loadingRef.current = true;
+  hasMoreRef.current = true;
+  cursorRef.current = null;
+
+  initialLoadRef.current = true;
+  initialLoadCompletedRef.current = false;
+  isPrependingRef.current = false;
+
+  const loadInitialMessages = async () => {
+    setMessages([]);
+    setLoadingMessages(true);
+
+    try {
+      const response = await getMessagesApi(roomId, null, PAGE_SIZE);
+
+      if (
+        cancelled ||
+        generation !== paginationGenerationRef.current ||
+        activeRoomRef.current !== roomId
+      ) {
+        return;
+      }
+
+      if (!response || !Array.isArray(response.messages)) {
+        throw new Error("Invalid message page response");
+      }
+
+      const initialMessages = response.messages;
+
+      setMessages((currentMessages) => {
+        // Keep any live messages received while the REST request
+        // was in progress, while avoiding duplicate entries.
+        const combined = [...initialMessages, ...currentMessages];
+        const uniqueMessages = [];
+        const seen = new Set();
+
+        for (const message of combined) {
+          const key = getMessageKey(message);
+
+          if (!seen.has(key)) {
+            seen.add(key);
+            uniqueMessages.push(message);
+          }
+        }
+
+        return uniqueMessages;
+      });
+
+      cursorRef.current = response?.nextCursor || null;
+      hasMoreRef.current = Boolean(response?.hasMore);
+
+      initialLoadCompletedRef.current = true;
+    } catch (error) {
+      if (!cancelled && generation === paginationGenerationRef.current) {
         console.error("Error loading messages:", error);
+        toast.error("Unable to load messages.");
+      }
+    } finally {
+      if (!cancelled && generation === paginationGenerationRef.current) {
+        loadingRef.current = false;
+        setLoadingMessages(false);
       }
     }
-    if (connected) {
-      loadMessages();
-    }
-  }, [connected, roomId]);
+  };
+
+  loadInitialMessages();
+
+  return () => {
+    cancelled = true;
+    loadingRef.current = false;
+    hasMoreRef.current = false;
+    cursorRef.current = null;
+    activeRoomRef.current = null;
+    paginationGenerationRef.current += 1;
+  };
+}, [connected, roomId]);
 
   // Scroll to the bottom of the chat box when messages change
-  useEffect(() => {
-    if (chatBoxRef.current) {
-      chatBoxRef.current.scroll({
-        top: chatBoxRef.current.scrollHeight,
+  useLayoutEffect(() => {
+    const chatBox = chatBoxRef.current;
+    if (!chatBox) return;
+
+    // Preserve the visible position when older messages are prepended.
+    if (isPrependingRef.current) {
+      const heightDifference =
+        chatBox.scrollHeight - previousScrollHeightRef.current;
+
+      chatBox.scrollTop =
+        previousScrollTopRef.current + heightDifference;
+
+      isPrependingRef.current = false;
+      shouldAutoScrollRef.current = false;
+      return;
+    }
+
+    // Scroll to the bottom after the initial messages load.
+    if (initialLoadRef.current && initialLoadCompletedRef.current) {
+      chatBox.scrollTop = chatBox.scrollHeight;
+      initialLoadRef.current = false;
+      shouldAutoScrollRef.current = false;
+      return;
+    }
+
+    // For live messages, scroll only if the user was near the bottom.
+    if (shouldAutoScrollRef.current) {
+      chatBox.scrollTo({
+        top: chatBox.scrollHeight,
         behavior: "smooth",
       });
     }
+
+    shouldAutoScrollRef.current = false;
   }, [messages]);
 
   //WebSocket connection and subscription
@@ -179,6 +301,17 @@ const ChatPage = () => {
 
         client.subscribe(`/topic/room/${roomId}`, (message) => {
           const newMessage = JSON.parse(message.body);
+          // Remember whether the user was near the bottom BEFORE
+          // adding the new message.
+          const chatBox = chatBoxRef.current;
+
+          shouldAutoScrollRef.current = chatBox
+            ? chatBox.scrollHeight -
+                chatBox.scrollTop -
+                chatBox.clientHeight <
+              150
+            : true;
+
           setMessages((prev) => [...prev, newMessage]);
           playMessageSound();
           if (document.hidden) {
@@ -242,23 +375,130 @@ const ChatPage = () => {
     navigate("/");
   };
 
-  const handleChatScroll = () => {
-    if (chatBoxRef.current) {
-      const { scrollTop, scrollHeight, clientHeight } = chatBoxRef.current;
-      const previousScrollTop = previousScrollTopRef.current;
-      const isScrollingUp = scrollTop < previousScrollTop - 4;
-      const isScrollingDown = scrollTop > previousScrollTop + 4;
 
-      if (scrollTop <= 24 || isScrollingDown) {
-        setShowScrollTop(false);
-      } else if (isScrollingUp) {
-        setShowScrollTop(true);
+const loadOlderMessages = async () => {
+    if (
+      loadingRef.current ||
+      !hasMoreRef.current ||
+      !connected ||
+      !roomId ||
+      !chatBoxRef.current
+    ) {
+      return;
+    }
+
+    const requestedRoomId = roomId;
+    const requestedCursor = cursorRef.current;
+    const generation = paginationGenerationRef.current;
+
+    loadingRef.current = true;
+    setLoadingMessages(true);
+
+    // Capture the current scroll position before loading older messages.
+    previousScrollHeightRef.current =
+      chatBoxRef.current.scrollHeight;
+
+    previousScrollTopRef.current =
+      chatBoxRef.current.scrollTop;
+
+    try {
+      const response = await getMessagesApi(
+        requestedRoomId,
+        requestedCursor,
+        PAGE_SIZE,
+      );
+
+      // Ignore responses belonging to a room that is no longer active.
+      if (
+        activeRoomRef.current !== requestedRoomId ||
+        generation !== paginationGenerationRef.current ||
+        !response ||
+        !Array.isArray(response.messages)
+      ) {
+        return;
       }
 
-      setShowScrollBottom(scrollTop + clientHeight < scrollHeight - 24);
-      previousScrollTopRef.current = scrollTop;
+      if (response.messages.length > 0) {
+        // Deduplicate inside the functional update so the response cannot
+        // be compared against a stale render while live messages arrive.
+        setMessages((currentMessages) => {
+          const existingKeys = new Set(
+            currentMessages.map((message) =>
+              getMessageKey(message),
+            ),
+          );
+          const olderMessages = response.messages.filter((message) => {
+            const key = getMessageKey(message);
+            return !existingKeys.has(key);
+          });
+
+          if (olderMessages.length === 0) {
+            return currentMessages;
+          }
+
+          isPrependingRef.current = true;
+          return [...olderMessages, ...currentMessages];
+        });
+      }
+
+      cursorRef.current = response.nextCursor || null;
+      hasMoreRef.current = Boolean(response.hasMore);
+    } catch (error) {
+      if (error.response?.status === 400) {
+        hasMoreRef.current = false;
+      }
+      isPrependingRef.current = false;
+
+      console.error("Error loading older messages:", error);
+      toast.error("Unable to load older messages.");
+    } finally {
+      if (generation === paginationGenerationRef.current) {
+        loadingRef.current = false;
+        setLoadingMessages(false);
+      }
     }
   };
+
+
+
+
+
+
+
+
+  const handleChatScroll = () => {
+  if (chatBoxRef.current) {
+    const { scrollTop, scrollHeight, clientHeight } =
+      chatBoxRef.current;
+
+    const previousScrollTop = previousScrollTopRef.current;
+    const isScrollingUp = scrollTop < previousScrollTop - 4;
+    const isScrollingDown = scrollTop > previousScrollTop + 4;
+
+    // Load older messages when reaching the top
+    if (
+      scrollTop <= 24 &&
+      hasMoreRef.current &&
+      !loadingRef.current
+    ) {
+      loadOlderMessages();
+    }
+
+    // Existing scroll-to-top button behavior
+    if (scrollTop <= 24 || isScrollingDown) {
+      setShowScrollTop(false);
+    } else if (isScrollingUp) {
+      setShowScrollTop(true);
+    }
+
+    // Existing scroll-to-bottom button behavior
+    setShowScrollBottom(
+      scrollTop + clientHeight < scrollHeight - 24
+    );
+
+    previousScrollTopRef.current = scrollTop;
+  }
+};
 
   const scrollToTop = () => {
     chatBoxRef.current?.scrollTo({
@@ -376,6 +616,15 @@ const ChatPage = () => {
           <span>{messages.length ? `${messages.length} messages` : "Start the conversation"}</span>
           <span className="h-px flex-1 bg-white/10" />
         </div>
+
+        {loadingMessages && (
+            <p
+              className="py-3 text-center text-xs text-slate-500"
+              role="status"
+            >
+              Loading messages...
+            </p>
+          )}
 
         <div>
           {messages.map((message, index) => {

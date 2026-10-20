@@ -4,12 +4,15 @@ package com.substring.chat.chat_app_backend.controllers;
 import com.substring.chat.chat_app_backend.config.AppConstants;
 import com.substring.chat.chat_app_backend.entities.Message;
 import com.substring.chat.chat_app_backend.entities.Room;
+import com.substring.chat.chat_app_backend.payload.MessagePageResponse;
 import com.substring.chat.chat_app_backend.repositories.RoomRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/rooms")
@@ -61,24 +64,53 @@ public class RoomController {
 
     //get messages of the  room
     @GetMapping("/{roomId}/messages")
-    public ResponseEntity<List<Message>> getMessages(
+    public ResponseEntity<MessagePageResponse> getMessages(
             @PathVariable String roomId,
-            @RequestParam(value ="page", defaultValue = "0", required = false) int page,
-            @RequestParam(value = "size", defaultValue = "20", required = false) int size){
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "20") int size){
+
+        if (size < 1 || size > 100) {
+            return ResponseEntity.badRequest().build();
+        }
 
         Room room = roomRepository.findByRoomId(roomId);
+
         if(room==null){
             return ResponseEntity.badRequest().build();
         }
 
+        List<Message> messages = room.getMessages();
+        boolean changed = false;
+        for (Message message : messages) {
+            if (message.getId() == null || message.getId().isBlank()) {
+                message.setId(UUID.randomUUID().toString());
+                changed = true;
+            }
+        }
+        if (changed) {
+            roomRepository.save(room);
+        }
 
-        //get messages
-        //pagination
-        List<Message> messages= room.getMessages();
-        int start = Math.max(0, messages.size() - (page + 1) * size);
-        int end = Math.min(messages.size(), start+size);
-        List<Message> paginatedMessages = messages.subList(start,end);
-        return ResponseEntity.ok(messages);
+        int end = messages.size();
+        if (cursor != null && !cursor.isBlank()) {
+            end = -1;
+            for (int index = 0; index < messages.size(); index++) {
+                if (cursor.equals(messages.get(index).getId())) {
+                    end = index;
+                    break;
+                }
+            }
+            if (end < 0) {
+                return ResponseEntity.badRequest().build();
+            }
+        }
+
+        int start = Math.max(0, end - size);
+        List<Message> paginatedMessages = new ArrayList<>(messages.subList(start, end));
+        boolean hasMore = start > 0;
+        String nextCursor = hasMore ? paginatedMessages.get(0).getId() : null;
+        return ResponseEntity.ok(
+                new MessagePageResponse(paginatedMessages, hasMore, nextCursor));
     }
 
 

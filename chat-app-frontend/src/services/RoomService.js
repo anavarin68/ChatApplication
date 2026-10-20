@@ -14,9 +14,10 @@ export const joinRoomApi = async (roomId) => {
   return response.data;
 };
 
-export const getMessagesApi = async (roomId, page = 0, size = 50) => {
+export const getMessagesApi = async (roomId, cursor, size = 20) => {
+  const cursorParam = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
   const response = await httpCLient.get(
-    `api/v1/rooms/${roomId}/messages?page=${page}&size=${size}`,
+    `api/v1/rooms/${roomId}/messages?size=${size}${cursorParam}`,
   );
   return response.data;
 };
