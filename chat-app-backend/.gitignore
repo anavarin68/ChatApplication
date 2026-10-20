@@ -1,0 +1,55 @@
+
+HELP.md
+
+# Maven
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+application-local.properties
+application-secret.properties
+application-prod.properties
+secrets/
+*.pem
+*.key
+
+# Logs
+*.log
+logs/
+
+# STS / Eclipse
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+# IntelliJ IDEA
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# NetBeans
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# VS Code
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
