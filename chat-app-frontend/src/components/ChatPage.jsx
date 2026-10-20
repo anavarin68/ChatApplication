@@ -1,4 +1,9 @@
-import { MdAttachFile, MdSend } from "react-icons/md";
+import {
+  MdAttachFile,
+  MdKeyboardArrowDown,
+  MdKeyboardArrowUp,
+  MdSend,
+} from "react-icons/md";
 import { useState, useRef, useEffect } from "react";
 import useChatContext from "../context/ChatContext";
 import { useNavigate } from "react-router-dom";
@@ -18,17 +23,21 @@ const ChatPage = () => {
     setRoomId,
     setCurrentUser,
   } = useChatContext();
-  // console.log("connected", connected);
-  // console.log("roomId", roomId);
-  // console.log("currentUser", currentUser);
-
   const navigate = useNavigate();
 
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
-  const inputRef = useRef(null);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
   const chatBoxRef = useRef(null);
+  const previousScrollTopRef = useRef(0);
   const [stompClient, setStompClient] = useState(null);
+
+  useEffect(() => {
+    if (!connected || !roomId || !currentUser) {
+      navigate("/", { replace: true });
+    }
+  }, [connected, roomId, currentUser, navigate]);
 
   useEffect(() => {
     async function loadMessages() {
@@ -42,7 +51,7 @@ const ChatPage = () => {
     if (connected) {
       loadMessages();
     }
-  });
+  }, [connected, roomId]);
 
   // Scroll to the bottom of the chat box when messages change
   useEffect(() => {
@@ -118,72 +127,147 @@ const ChatPage = () => {
     navigate("/");
   };
 
+  const handleChatScroll = () => {
+    if (chatBoxRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = chatBoxRef.current;
+      const previousScrollTop = previousScrollTopRef.current;
+      const isScrollingUp = scrollTop < previousScrollTop - 4;
+      const isScrollingDown = scrollTop > previousScrollTop + 4;
+
+      if (scrollTop <= 24 || isScrollingDown) {
+        setShowScrollTop(false);
+      } else if (isScrollingUp) {
+        setShowScrollTop(true);
+      }
+
+      setShowScrollBottom(scrollTop + clientHeight < scrollHeight - 24);
+      previousScrollTopRef.current = scrollTop;
+    }
+  };
+
+  const scrollToTop = () => {
+    chatBoxRef.current?.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
+  };
+
+  const scrollToBottom = () => {
+    chatBoxRef.current?.scrollTo({
+      top: chatBoxRef.current.scrollHeight,
+      behavior: "smooth",
+    });
+  };
+
   return (
-    <div className="">
-      {/* Header */}
-      <header className="fixed w-full dark:border-gray-700 dark:bg-gray-900 shadow flex justify-around items-center py-5 ">
-        {/* Room name */}
-        <div>
-          <h1 className="text-xl font-semibold">
-            Room: <span>{roomId}</span>
-          </h1>
-        </div>
+    <div className="min-h-screen bg-[#08111f] text-slate-100">
+      <header className="sticky top-0 z-10 border-b border-white/10 bg-[#08111f]/90 px-4 py-4 backdrop-blur-xl sm:px-6">
+        <div className="mx-auto flex max-w-4xl items-center justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.7)]" />
+              <p className="truncate text-sm font-semibold text-white">{roomId}</p>
+            </div>
+          </div>
 
-        {/* user name   */}
-        <div>
-          <h1 className="text-xl font-semibold">
-            User: <span>{currentUser}</span>
-          </h1>
-        </div>
-
-        {/* leave room: button */}
-        <div>
-          <button
-            onClick={handleLogout}
-            className="dark:bg-red-500 dark:hover:bg-red-700 py-1 px-3 rounded transition-colors"
-          >
-            Leave Room
-          </button>
+          <div className="flex items-center gap-3">
+            <div className="hidden text-right sm:block">
+              <p className="text-sm font-medium text-slate-200">{currentUser}</p>
+              <p className="text-xs text-slate-500">You</p>
+            </div>
+            <img
+              src={`https://api.dicebear.com/7.x/bottts/png?seed=${encodeURIComponent(currentUser)}`}
+              alt=""
+              className="h-9 w-9 rounded-full border border-white/10 bg-slate-800"
+            />
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="rounded-lg border border-white/10 px-3 py-2 text-xs font-medium text-slate-300 transition hover:border-red-400/40 hover:bg-red-400/10 hover:text-red-200 focus:outline-none focus:ring-2 focus:ring-red-300/30"
+            >
+              Leave
+            </button>
+          </div>
         </div>
       </header>
 
-      {/* Chat Area */}
       <main
         ref={chatBoxRef}
-        className="py-20 px-10 dark:bg-slate-600 w-2/3 mx-auto h-screen overflow-auto"
+        onScroll={handleChatScroll}
+        className="hide-scrollbar mx-auto h-[calc(100vh-73px)] max-w-4xl overflow-y-auto px-4 pb-20 pt-8 sm:px-6"
       >
-        {messages.map((message, index) => (
-          <div
-            key={index}
-            className={`flex ${message.sender === currentUser ? "justify-end" : "justify-start"} `}
-          >
-            <div
-              className={` ${message.sender === currentUser ? "bg-blue-500" : "bg-gray-800"} my-1 p-1 rounded-lg text-white w-fit`}
-            >
-              <div className="flex flex-row gap-1">
+        <div className="mb-8 flex items-center gap-3 text-xs text-slate-500">
+          <span className="h-px flex-1 bg-white/10" />
+          <span>{messages.length ? `${messages.length} messages` : "Start the conversation"}</span>
+          <span className="h-px flex-1 bg-white/10" />
+        </div>
+
+        <div>
+          {messages.map((message, index) => {
+            const isCurrentUser = message.sender === currentUser;
+            const previousMessage = messages[index - 1];
+            const sameSender =
+              previousMessage && previousMessage.sender === message.sender;
+
+            return (
+              <div
+                key={index}
+                className={`flex items-end gap-3 ${
+                  index === 0 ? "" : sameSender ? "mt-1" : "mt-3"
+                } ${isCurrentUser ? "justify-end" : "justify-start"}`}
+              >
                 <img
                   src={`https://api.dicebear.com/7.x/bottts/png?seed=${encodeURIComponent(message.sender)}`}
-                  alt={`${message.sender}'s avatar`}
-                  className="w-9 h-9 rounded-full shrink-0"
+                  alt=""
+                  className={`h-8 w-8 shrink-0 rounded-full border border-white/10 bg-slate-800 ${isCurrentUser ? "order-2" : ""}`}
                 />
-                <div className="flex flex-col gap-1">
-                  <p className="text-sm font-bold">{message.sender}</p>
-                  <p>{message.content}</p>
-                  <p className="text-xs text-gray-400">
-                    {timeAgo(message.timeStamp)}
-                  </p>
+                <div
+                  className={`max-w-[min(80%,32rem)] rounded-2xl px-4 py-3 ${
+                    isCurrentUser
+                      ? "rounded-br-md bg-cyan-400 text-slate-950"
+                      : "rounded-bl-md border border-white/10 bg-white/[0.07] text-slate-100"
+                  }`}
+                >
+                  <div className="mb-1 flex items-baseline justify-between gap-5">
+                    <p className={`text-xs font-semibold ${isCurrentUser ? "text-slate-800" : "text-cyan-300"}`}>
+                      {isCurrentUser ? "You" : message.sender}
+                    </p>
+                    <p className={`text-[11px] ${isCurrentUser ? "text-slate-700" : "text-slate-500"}`}>
+                      {timeAgo(message.timeStamp)}
+                    </p>
+                  </div>
+                  <p className="whitespace-pre-wrap break-words text-sm leading-6">{message.content}</p>
                 </div>
               </div>
-            </div>
-          </div>
-        ))}
-
-        {/* Messages will be displayed here */}
+            );
+          })}
+        </div>
       </main>
 
-      {/* Input Message Section */}
-      <div className="fixed bottom-0 left-0 w-full h-20 px-4 ">
-        <div className="h-full w-full md:w-2/3 px-4 md:px-6 gap-4 flex items-center justify-between mx-auto rounded-full dark:bg-gray-800">
+      {showScrollTop && (
+        <button
+          type="button"
+          onClick={scrollToTop}
+          aria-label="Scroll to top"
+          className="animate-scroll-control fixed left-1/2 top-[4.75rem] z-20 flex h-7 w-7 -translate-x-1/2 items-center justify-center text-cyan-300 transition duration-200 hover:scale-125 hover:text-cyan-200 focus:scale-125 focus:outline-none focus:ring-2 focus:ring-cyan-300/50 active:scale-90"
+        >
+          <MdKeyboardArrowUp size={22} />
+        </button>
+      )}
+
+      {showScrollBottom && (
+        <button
+          type="button"
+          onClick={scrollToBottom}
+          aria-label="Scroll to bottom"
+          className="animate-scroll-control fixed bottom-24 left-1/2 z-20 flex h-7 w-7 -translate-x-1/2 items-center justify-center text-cyan-300 transition duration-200 hover:scale-125 hover:text-cyan-200 focus:scale-125 focus:outline-none focus:ring-2 focus:ring-cyan-300/50 active:scale-90"
+        >
+          <MdKeyboardArrowDown size={22} />
+        </button>
+      )}
+
+      <div className="fixed bottom-0 left-0 z-10 w-full border-t border-white/10 bg-[#08111f]/90 px-3 py-3 backdrop-blur-xl sm:px-6">
+        <div className="mx-auto flex h-12 max-w-4xl items-center gap-1.5 rounded-xl border border-white/10 bg-slate-900/80 px-2 shadow-xl shadow-black/20 transition focus-within:border-cyan-300/30 focus-within:ring-2 focus-within:ring-cyan-300/10">
           <input
             value={input}
             onChange={(e) => {
@@ -196,19 +280,26 @@ const ChatPage = () => {
               }
             }}
             type="text"
-            placeholder="Type your message..."
-            className="dark:border-gray-600 dark:bg-gray-900 dark:text-white px-5 py-2 flex-1 min-w-0 border rounded-full outline-none focus:ring-1 focus:outline-none"
+            placeholder="Write a message..."
+            aria-label="Message"
+            className="min-w-0 flex-1 bg-transparent px-2.5 text-sm text-white outline-none placeholder:text-slate-500"
           />
 
-          <div className="flex gap-2">
-            <button className="dark:bg-purple-600 hover:bg-puple-700 text-white h-10 w-10 shrink-0 flex rounded-full items-center justify-center transition-colors">
-              <MdAttachFile size={20} />
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              aria-label="Attach a file"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white"
+            >
+              <MdAttachFile size={18} />
             </button>
             <button
+              type="button"
               onClick={sendMessage}
-              className="dark:bg-green-600 hover:bg-green-700 text-white h-10 w-10 shrink-0 flex rounded-full items-center justify-center transition-colors"
+              aria-label="Send message"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-cyan-400 text-slate-950 transition hover:bg-cyan-300 focus:outline-none focus:ring-2 focus:ring-cyan-200/50"
             >
-              <MdSend size={20} />
+              <MdSend size={18} />
             </button>
           </div>
         </div>

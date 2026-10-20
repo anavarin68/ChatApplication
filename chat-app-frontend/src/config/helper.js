@@ -1,7 +1,18 @@
 
+function parseServerDate(date) {
+  if (typeof date !== "string") {
+    return new Date(date);
+  }
+
+  // LocalDateTime values from the backend are generated in Render's UTC timezone.
+  // Treat timezone-less ISO values as UTC instead of the browser's local timezone.
+  const hasTimezone = /(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(date);
+  return new Date(hasTimezone ? date : `${date}Z`);
+}
+
 export function timeAgo(date) {
   const now = new Date();
-  const past = new Date(date);
+  const past = parseServerDate(date);
 
   if (Number.isNaN(past.getTime())) {
     return "Invalid date";
