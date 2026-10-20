@@ -1,10 +1,13 @@
 import {
   MdAttachFile,
+  MdEmojiEmotions,
   MdKeyboardArrowDown,
   MdKeyboardArrowUp,
+  MdNotificationsNone,
   MdSend,
 } from "react-icons/md";
 import { useState, useRef, useEffect } from "react";
+import EmojiPicker from "emoji-picker-react";
 import useChatContext from "../context/ChatContext";
 import { useNavigate } from "react-router-dom";
 import SockJS from "sockjs-client";
@@ -12,7 +15,28 @@ import { Stomp } from "@stomp/stompjs";
 import toast from "react-hot-toast";
 import { baseURL } from "../config/AxiosHelper";
 import { getMessagesApi } from "../services/RoomService";
-import { timeAgo } from "../config/helper";
+import {
+  formatMessageDateLabel,
+  getMessageDateKey,
+  formatMessageTime,
+} from "../config/helper";
+
+function playMessageSound() {
+  try {
+    const audioContext = new AudioContext();
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    oscillator.frequency.value = 660;
+    gain.gain.setValueAtTime(0.2, audioContext.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.2);
+    oscillator.connect(gain);
+    gain.connect(audioContext.destination);
+    oscillator.start();
+    oscillator.stop(audioContext.currentTime + 0.2);
+  } catch (error) {
+    console.error("Unable to play message notification sound:", error);
+  }
+}
 
 const ChatPage = () => {
   const {
@@ -20,24 +44,101 @@ const ChatPage = () => {
     roomId,
     currentUser,
     setConnected,
-    setRoomId,
-    setCurrentUser,
+    clearSession,
   } = useChatContext();
   const navigate = useNavigate();
 
   const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(() => {
+    return localStorage.getItem(`chatDraft-${roomId}`) || "";
+  });
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [hour12] = useState(() => {
+    return localStorage.getItem("chatHour12") === "true";
+  });
+  const [recentEmojis, setRecentEmojis] = useState(() => {
+    try {
+      const savedRecentEmojis = window.localStorage.getItem("recentEmojis");
+      const parsedRecentEmojis = savedRecentEmojis
+        ? JSON.parse(savedRecentEmojis)
+        : [];
+      return Array.isArray(parsedRecentEmojis) ? parsedRecentEmojis : [];
+    } catch (error) {
+      console.error("Unable to load recent emojis:", error);
+      return [];
+    }
+  });
   const chatBoxRef = useRef(null);
+  const emojiPickerRef = useRef(null);
+  const emojiButtonRef = useRef(null);
   const previousScrollTopRef = useRef(0);
   const [stompClient, setStompClient] = useState(null);
+
+  const messageDraftKey = `chatDraft-${roomId}`;
+
+  useEffect(() => {
+    if (input) {
+      localStorage.setItem(messageDraftKey, input);
+    } else {
+      localStorage.removeItem(messageDraftKey);
+    }
+  }, [input, messageDraftKey]);
+
+  useEffect(() => {
+    const handleWindowFocus = () => {
+      setUnreadCount(0);
+      document.title = "Chatify";
+    };
+    window.addEventListener("focus", handleWindowFocus);
+    return () => window.removeEventListener("focus", handleWindowFocus);
+  }, []);
 
   useEffect(() => {
     if (!connected || !roomId || !currentUser) {
       navigate("/", { replace: true });
     }
   }, [connected, roomId, currentUser, navigate]);
+
+  useEffect(() => {
+    function handleOutsideClick(event) {
+      if (!showEmojiPicker) {
+        return;
+      }
+
+      if (
+        emojiPickerRef.current?.contains(event.target) ||
+        emojiButtonRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+
+      setShowEmojiPicker(false);
+    }
+
+    document.addEventListener("mousedown", handleOutsideClick);
+
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, [showEmojiPicker]);
+
+  useEffect(() => {
+    if (!showEmojiPicker) {
+      return;
+    }
+
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        setShowEmojiPicker(false);
+      }
+    };
+
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [showEmojiPicker]);
 
   useEffect(() => {
     async function loadMessages() {
@@ -79,6 +180,19 @@ const ChatPage = () => {
         client.subscribe(`/topic/room/${roomId}`, (message) => {
           const newMessage = JSON.parse(message.body);
           setMessages((prev) => [...prev, newMessage]);
+          playMessageSound();
+          if (document.hidden) {
+            setUnreadCount((count) => {
+              const nextCount = count + 1;
+              document.title = `(${nextCount}) New messages — Chatify`;
+              return nextCount;
+            });
+            if ("Notification" in window && Notification.permission === "granted") {
+              new Notification(`New message from ${newMessage.sender}`, {
+                body: newMessage.content,
+              });
+            }
+          }
         });
       },
       (error) => {
@@ -113,14 +227,15 @@ const ChatPage = () => {
         JSON.stringify(message),
       );
       setInput("");
+      setShowEmojiPicker(false);
+      localStorage.removeItem(messageDraftKey);
     }
   };
 
   // handle logout
   const handleLogout = () => {
     setConnected(false);
-    setRoomId("");
-    setCurrentUser("");
+    clearSession();
     setStompClient(null);
 
     toast.success("You have left the room.");
@@ -159,31 +274,91 @@ const ChatPage = () => {
     });
   };
 
+  const handleEmojiSelect = (emojiData) => {
+    setInput((previousInput) => `${previousInput}${emojiData.emoji}`);
+    setRecentEmojis((previousEmojis) => {
+      const updatedEmojis = [
+        emojiData.emoji,
+        ...previousEmojis.filter((emoji) => emoji !== emojiData.emoji),
+      ].slice(0, 8);
+      window.localStorage.setItem("recentEmojis", JSON.stringify(updatedEmojis));
+      return updatedEmojis;
+    });
+  };
+
+  const enableNotifications = async () => {
+    if ("Notification" in window && Notification.permission === "default") {
+      await Notification.requestPermission();
+    }
+  };
+
+  const shareRoom = async () => {
+    const shareUrl = `${window.location.origin}/?room=${encodeURIComponent(roomId)}`;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      toast.success("Room link copied.");
+    } catch (error) {
+      console.error("Unable to copy room link:", error);
+      toast.error("Unable to copy room link.");
+    }
+  };
+
+  const renderMessageContent = (content) =>
+    content.split(/(https?:\/\/[^\s]+)/g).map((part, index) =>
+      /^https?:\/\//.test(part) ? (
+        <a
+          key={`${part}-${index}`}
+          href={part}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="break-all underline decoration-current/40 underline-offset-2 hover:decoration-current"
+        >
+          {part}
+        </a>
+      ) : (
+        <span key={`${part}-${index}`}>{part}</span>
+      ),
+    );
+
   return (
     <div className="min-h-screen bg-[#08111f] text-slate-100">
-      <header className="sticky top-0 z-10 border-b border-white/10 bg-[#08111f]/90 px-4 py-4 backdrop-blur-xl sm:px-6">
+      <header className="sticky top-0 z-10 border-b border-white/10 bg-[#08111f]/90 px-4 py-2.5 backdrop-blur-xl sm:px-6">
         <div className="mx-auto flex max-w-4xl items-center justify-between">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.7)]" />
-              <p className="truncate text-sm font-semibold text-white">{roomId}</p>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-white">{roomId}</p>
+                <p className="truncate text-xs text-slate-500">{currentUser}</p>
+              </div>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="hidden text-right sm:block">
-              <p className="text-sm font-medium text-slate-200">{currentUser}</p>
-              <p className="text-xs text-slate-500">You</p>
-            </div>
-            <img
-              src={`https://api.dicebear.com/7.x/bottts/png?seed=${encodeURIComponent(currentUser)}`}
-              alt=""
-              className="h-9 w-9 rounded-full border border-white/10 bg-slate-800"
-            />
+            <button
+              type="button"
+              onClick={enableNotifications}
+              aria-label="Enable browser notifications"
+              className="relative flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white"
+            >
+              <MdNotificationsNone size={18} />
+              {unreadCount > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-cyan-400 px-1 text-[10px] font-bold text-slate-950">
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={shareRoom}
+              className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
+            >
+              Share Room
+            </button>
             <button
               type="button"
               onClick={handleLogout}
-              className="rounded-lg border border-white/10 px-3 py-2 text-xs font-medium text-slate-300 transition hover:border-red-400/40 hover:bg-red-400/10 hover:text-red-200 focus:outline-none focus:ring-2 focus:ring-red-300/30"
+              className="rounded-lg bg-red-500/90 px-3 py-1.5 text-xs font-semibold text-white shadow-lg shadow-red-950/20 transition hover:bg-red-400 focus:outline-none focus:ring-2 focus:ring-red-300/50"
             >
               Leave
             </button>
@@ -208,14 +383,25 @@ const ChatPage = () => {
             const previousMessage = messages[index - 1];
             const sameSender =
               previousMessage && previousMessage.sender === message.sender;
+            const showDateSeparator =
+              !previousMessage ||
+              getMessageDateKey(previousMessage.timeStamp) !==
+                getMessageDateKey(message.timeStamp);
 
             return (
-              <div
-                key={index}
-                className={`flex items-end gap-3 ${
-                  index === 0 ? "" : sameSender ? "mt-1" : "mt-3"
-                } ${isCurrentUser ? "justify-end" : "justify-start"}`}
-              >
+              <div key={`${message.timeStamp}-${index}`}>
+                {showDateSeparator && (
+                  <div className="my-5 flex items-center gap-3 text-xs text-slate-500">
+                    <span className="h-px flex-1 bg-white/10" />
+                    <span>{formatMessageDateLabel(message.timeStamp)}</span>
+                    <span className="h-px flex-1 bg-white/10" />
+                  </div>
+                )}
+                <div
+                  className={`flex items-end gap-3 ${
+                    index === 0 ? "" : sameSender ? "mt-1" : "mt-3"
+                  } ${isCurrentUser ? "justify-end" : "justify-start"}`}
+                >
                 <img
                   src={`https://api.dicebear.com/7.x/bottts/png?seed=${encodeURIComponent(message.sender)}`}
                   alt=""
@@ -233,10 +419,13 @@ const ChatPage = () => {
                       {isCurrentUser ? "You" : message.sender}
                     </p>
                     <p className={`text-[11px] ${isCurrentUser ? "text-slate-700" : "text-slate-500"}`}>
-                      {timeAgo(message.timeStamp)}
+                      {formatMessageTime(message.timeStamp, hour12)}
                     </p>
                   </div>
-                  <p className="whitespace-pre-wrap break-words text-sm leading-6">{message.content}</p>
+                  <p className="whitespace-pre-wrap break-words text-sm leading-6">
+                    {renderMessageContent(message.content)}
+                  </p>
+                </div>
                 </div>
               </div>
             );
@@ -267,25 +456,68 @@ const ChatPage = () => {
       )}
 
       <div className="fixed bottom-0 left-0 z-10 w-full border-t border-white/10 bg-[#08111f]/90 px-3 py-3 backdrop-blur-xl sm:px-6">
-        <div className="mx-auto flex h-12 max-w-4xl items-center gap-1.5 rounded-xl border border-white/10 bg-slate-900/80 px-2 shadow-xl shadow-black/20 transition focus-within:border-cyan-300/30 focus-within:ring-2 focus-within:ring-cyan-300/10">
-          <input
+        <div className="relative mx-auto max-w-4xl">
+          {showEmojiPicker && (
+            <div
+              ref={emojiPickerRef}
+              className="absolute bottom-14 left-1/2 z-30 w-[min(300px,calc(100vw-2rem))] -translate-x-1/2 overflow-hidden rounded-xl border border-white/10 shadow-2xl shadow-black/40 sm:left-auto sm:right-0 sm:translate-x-0"
+            >
+              {recentEmojis.length > 0 && (
+                <div className="flex items-center gap-1 border-b border-white/10 bg-[#202124] px-3 py-2">
+                  <span className="mr-1 text-xs text-slate-400">Recent</span>
+                  {recentEmojis.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      aria-label={`Use recent emoji ${emoji}`}
+                      onClick={() => handleEmojiSelect({ emoji })}
+                      className="flex h-7 w-7 items-center justify-center rounded-md text-lg transition hover:bg-white/10"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <EmojiPicker
+                onEmojiClick={handleEmojiSelect}
+                lazyLoadEmojis
+                searchDisabled
+                skinTonesDisabled
+                theme="dark"
+                width="100%"
+                height={360}
+              />
+            </div>
+          )}
+
+          <div className="flex h-12 items-center gap-1.5 rounded-xl border border-white/10 bg-slate-900/80 px-2 shadow-xl shadow-black/20 transition focus-within:border-cyan-300/30 focus-within:ring-2 focus-within:ring-cyan-300/10">
+          <textarea
             value={input}
             onChange={(e) => {
               setInput(e.target.value);
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter") {
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey || !e.shiftKey)) {
                 e.preventDefault();
                 sendMessage();
               }
             }}
-            type="text"
+            rows={1}
             placeholder="Write a message..."
             aria-label="Message"
-            className="min-w-0 flex-1 bg-transparent px-2.5 text-sm text-white outline-none placeholder:text-slate-500"
+            className="max-h-20 min-w-0 flex-1 resize-none bg-transparent px-2.5 py-2 text-sm leading-5 text-white outline-none placeholder:text-slate-500"
           />
 
           <div className="flex items-center gap-1">
+            <button
+              ref={emojiButtonRef}
+              type="button"
+              aria-label="Open emoji picker"
+              onClick={() => setShowEmojiPicker((previous) => !previous)}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white"
+            >
+              <MdEmojiEmotions size={18} />
+            </button>
             <button
               type="button"
               aria-label="Attach a file"
@@ -302,6 +534,7 @@ const ChatPage = () => {
               <MdSend size={18} />
             </button>
           </div>
+        </div>
         </div>
       </div>
     </div>

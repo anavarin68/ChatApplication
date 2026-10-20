@@ -7,7 +7,7 @@ import { useNavigate } from "react-router-dom";
 
 const JoinCreateChat = () => {
   const [detail, setDetail] = React.useState({
-    roomId: "",
+    roomId: new URLSearchParams(window.location.search).get("room") || "",
     userName: "",
   });
 

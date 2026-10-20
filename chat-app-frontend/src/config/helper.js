@@ -10,6 +10,51 @@ function parseServerDate(date) {
   return new Date(hasTimezone ? date : `${date}Z`);
 }
 
+export function formatMessageTime(date, hour12 = false) {
+  const parsedDate = parseServerDate(date);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "Invalid time";
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    timeStyle: "short",
+    hour12,
+  }).format(parsedDate);
+}
+
+export function getMessageDateKey(date) {
+  const parsedDate = parseServerDate(date);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(parsedDate);
+}
+
+export function formatMessageDateLabel(date) {
+  const parsedDate = parseServerDate(date);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "Unknown date";
+  }
+
+  const today = new Date();
+  const todayKey = getMessageDateKey(today);
+  const dateKey = getMessageDateKey(parsedDate);
+  if (dateKey === todayKey) return "Today";
+
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (dateKey === getMessageDateKey(yesterday)) return "Yesterday";
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+  }).format(parsedDate);
+}
+
 export function timeAgo(date) {
   const now = new Date();
   const past = parseServerDate(date);
