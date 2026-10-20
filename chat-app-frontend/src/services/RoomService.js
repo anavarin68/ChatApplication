@@ -19,5 +19,13 @@ export const getMessagesApi = async (roomId, cursor, size = 20) => {
   const response = await httpCLient.get(
     `api/v1/rooms/${roomId}/messages?size=${size}${cursorParam}`,
   );
+  if (Array.isArray(response.data)) {
+    return {
+      messages: response.data,
+      hasMore: false,
+      nextCursor: null,
+    };
+  }
+
   return response.data;
 };
