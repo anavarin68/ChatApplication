@@ -45,7 +45,7 @@ function getMessageKey(message) {
   );
 }
 
-const ChatPage = () => {
+const ChatPage = ({ embedded = false }) => {
   const {
     connected,
     roomId,
@@ -561,7 +561,11 @@ const loadOlderMessages = async () => {
     );
 
   return (
-    <div className="min-h-screen bg-[#08111f] text-slate-100">
+    <div
+      className={`bg-[#08111f] text-slate-100 ${
+        embedded ? "h-full" : "min-h-screen"
+      }`}
+    >
       <header className="sticky top-0 z-10 border-b border-white/10 bg-[#08111f]/90 px-4 py-2.5 backdrop-blur-xl sm:px-6">
         <div className="mx-auto flex max-w-4xl items-center justify-between">
           <div className="min-w-0">
@@ -609,7 +613,9 @@ const loadOlderMessages = async () => {
       <main
         ref={chatBoxRef}
         onScroll={handleChatScroll}
-        className="hide-scrollbar mx-auto h-[calc(100vh-73px)] max-w-4xl overflow-y-auto px-4 pb-20 pt-8 sm:px-6"
+        className={`hide-scrollbar mx-auto max-w-4xl overflow-y-auto px-4 pb-20 pt-8 sm:px-6 ${
+          embedded ? "h-[calc(100%_-_73px)]" : "h-[calc(100vh-73px)]"
+        }`}
       >
         <div className="mb-8 flex items-center gap-3 text-xs text-slate-500">
           <span className="h-px flex-1 bg-white/10" />

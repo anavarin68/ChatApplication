@@ -49,7 +49,6 @@ public class RoomController {
         return ResponseEntity.status(HttpStatus.CREATED).body(room);
     }
 
-
     //get room
     @GetMapping("/{roomId}")
     public ResponseEntity<?> joinRoom( @PathVariable String roomId){

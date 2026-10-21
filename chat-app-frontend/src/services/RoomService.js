@@ -14,6 +14,16 @@ export const joinRoomApi = async (roomId) => {
   return response.data;
 };
 
+export const getRoomsApi = async () => {
+  try {
+    const savedRooms = JSON.parse(localStorage.getItem("chatRooms") || "[]");
+    return Array.isArray(savedRooms) ? savedRooms : [];
+  } catch (error) {
+    console.error("Unable to restore saved rooms:", error);
+    return [];
+  }
+};
+
 export const getMessagesApi = async (roomId, cursor, size = 20) => {
   const cursorParam = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
   const response = await httpCLient.get(

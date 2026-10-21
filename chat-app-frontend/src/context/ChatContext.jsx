@@ -11,7 +11,7 @@ function getSavedSession() {
       currentUser:
         typeof parsedSession.currentUser === "string"
           ? parsedSession.currentUser
-          : "",
+          : localStorage.getItem("authName") || "",
     };
   } catch (error) {
     console.error("Unable to restore chat session:", error);
