@@ -16,6 +16,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import com.substring.chat.chat_app_backend.payload.JoinRoomRequest;
+import com.substring.chat.chat_app_backend.services.MessageEncryptionService;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -28,12 +29,14 @@ public class RoomController {
 
     private final RoomRepository roomRepository;
     private final UserRepository userRepository;
+    private final MessageEncryptionService messageEncryptionService;
 
     public RoomController(
             RoomRepository roomRepository,
-            UserRepository userRepository) {
+            UserRepository userRepository, MessageEncryptionService messageEncryptionService) {
         this.roomRepository = roomRepository;
         this.userRepository = userRepository;
+        this.messageEncryptionService = messageEncryptionService;
     }
 
     //create room
@@ -185,6 +188,12 @@ public class RoomController {
         }
 
         List<Message> messages = room.getMessages();
+        for (Message message : messages) {
+            message.setContent(
+                    messageEncryptionService.decrypt(message.getContent())
+            );
+        }
+
         boolean changed = false;
         for (Message message : messages) {
             if (message.getId() == null || message.getId().isBlank()) {

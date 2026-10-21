@@ -12,6 +12,7 @@ import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.handler.annotation.SendTo;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.CrossOrigin;
+import com.substring.chat.chat_app_backend.services.MessageEncryptionService;
 
 import java.time.LocalDateTime;
 
@@ -20,9 +21,11 @@ import java.time.LocalDateTime;
 public class ChatController {
 
     private RoomRepository roomRepository;
+    private final MessageEncryptionService messageEncryptionService;
 
-    public ChatController(RoomRepository roomRepository) {
+    public ChatController(RoomRepository roomRepository, MessageEncryptionService messageEncryptionService) {
         this.roomRepository = roomRepository;
+        this.messageEncryptionService = messageEncryptionService;
     }
 
     //for sending and receiving messages
@@ -59,15 +62,28 @@ public class ChatController {
             throw new IllegalArgumentException("Room not found");
         }
 
+
         Message message = new Message();
         message.ensureId();
-        message.setContent(request.getContent());
         message.setSender(request.getSender());
         message.setTimeStamp(LocalDateTime.now());
 
-        room.getMessages().add(message);
+        // Keep plaintext for the live response.
+        String plaintext = request.getContent();
+        message.setContent(plaintext);
+
+        // Create a separate encrypted copy for MongoDB.
+        Message storedMessage = new Message();
+        storedMessage.setId(message.getId());
+        storedMessage.setSender(message.getSender());
+        storedMessage.setTimeStamp(message.getTimeStamp());
+        storedMessage.setContent(
+                messageEncryptionService.encrypt(plaintext));
+
+        room.getMessages().add(storedMessage);
         roomRepository.save(room);
 
         return message;
+
     }
 }
