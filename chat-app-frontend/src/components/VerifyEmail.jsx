@@ -1,8 +1,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
-import axios from "axios";
-import { baseURL } from "../config/AxiosHelper";
+import { httpCLient } from "../config/AxiosHelper";
 import { getApiErrorMessage } from "../services/AuthService";
 import chatIcon from "../assets/bubble-chat.png";
 
@@ -18,14 +17,18 @@ const VerifyEmail = () => {
   const verificationStarted = useRef(false);
 
   useEffect(() => {
+    document.title = "Verify email - Chatify";
+  }, []);
+
+  useEffect(() => {
 
     if (verificationStarted.current) return;
     verificationStarted.current = true;
 
     if (!hasVerificationParams) return;
 
-    axios
-      .get(`${baseURL}/api/v1/auth/verify-email`, {
+    httpCLient
+      .get("/api/v1/auth/verify-email", {
         params: { email, token },
       })
       .then((response) => {
@@ -74,7 +77,7 @@ const VerifyEmail = () => {
 
         {!loading && (
           <Link
-            to="/auth"
+            to="/login"
             className="mt-8 inline-flex w-full items-center justify-center rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 focus:outline-none focus:ring-2 focus:ring-cyan-200/50"
           >
             Continue to login

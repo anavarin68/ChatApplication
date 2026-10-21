@@ -5,16 +5,16 @@ import VerifyEmail from "../components/VerifyEmail.jsx";
 import AuthPage from "../components/AuthPage.jsx";
 
 const ProtectedRoute = ({ children }) => {
-  return localStorage.getItem("authToken") ? children : <Navigate to="/auth" replace />;
+  return localStorage.getItem("authToken") ? children : <Navigate to="/login" replace />;
 };
 
 const AppRoutes = () => {
   return (
     <Routes>
-      <Route path="/" element={<AuthPage />} />
-      <Route path="/auth" element={<AuthPage />} />
+      <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="/login" element={<AuthPage />} />
       <Route
-        path="/rooms"
+        path="/dashboard"
         element={
           <ProtectedRoute>
             <JoinCreateChat />
@@ -30,6 +30,8 @@ const AppRoutes = () => {
         }
       />
       <Route path="/verify-email" element={<VerifyEmail />} />
+      <Route path="/auth" element={<Navigate to="/login" replace />} />
+      <Route path="/rooms" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<h1>404 Page Not Found</h1>} />
     </Routes>
   );

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import chatIcon from "../assets/bubble-chat.png";
@@ -14,9 +14,14 @@ const AuthPage = () => {
   const [mode, setMode] = useState("login");
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [loading, setLoading] = useState(false);
+  const [verificationNotice, setVerificationNotice] = useState("");
   const navigate = useNavigate();
   const { setCurrentUser } = useChatContext();
   const isSignup = mode === "signup";
+
+  useEffect(() => {
+    document.title = isSignup ? "Create account - Chatify" : "Log in - Chatify";
+  }, [isSignup]);
 
   function updateForm(event) {
     setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
@@ -25,6 +30,7 @@ const AuthPage = () => {
   function switchMode(nextMode) {
     setMode(nextMode);
     setForm({ name: "", email: "", password: "" });
+    setVerificationNotice("");
   }
 
   async function submit(event) {
@@ -41,8 +47,14 @@ const AuthPage = () => {
     try {
       if (isSignup) {
         await registerApi({ name, email, password: form.password });
-        toast.success("Verification link sent. Check your email.");
+        toast.success("Verification link sent. Check your email.", {
+          duration: 6000,
+        });
         switchMode("login");
+        setForm({ name: "", email, password: "" });
+        setVerificationNotice(
+          `We sent a verification link to ${email}. Please check your inbox and verify your email before logging in.`,
+        );
       } else {
         const response = await loginApi({ email, password: form.password });
         const token = getAuthToken(response);
@@ -54,7 +66,7 @@ const AuthPage = () => {
         localStorage.setItem("authName", username);
         setCurrentUser(username);
         toast.success("Logged in successfully.");
-        navigate("/rooms");
+        navigate("/dashboard");
       }
     } catch (error) {
       toast.error(
@@ -94,6 +106,16 @@ const AuthPage = () => {
               : "Log in with your verified email to continue."}
           </p>
         </div>
+
+        {verificationNotice && !isSignup && (
+          <div
+            className="mb-6 rounded-xl border border-cyan-300/30 bg-cyan-300/10 px-4 py-3 text-sm text-cyan-100"
+            role="status"
+          >
+            <p className="font-semibold text-cyan-200">Verify your email before logging in</p>
+            <p className="mt-1 leading-5">{verificationNotice}</p>
+          </div>
+        )}
 
         <div className="mb-6 grid grid-cols-2 rounded-xl bg-black/20 p-1">
           {["login", "signup"].map((tab) => (

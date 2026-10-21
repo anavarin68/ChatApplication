@@ -1,3 +1,4 @@
+
 package com.substring.chat.chat_app_backend.entities;
 
 import lombok.AllArgsConstructor;
@@ -16,9 +17,17 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class Room {
+
     @Id
     private String id;
-    private String roomId;
-    private List<Message> messages = new ArrayList<>();
 
+    private String roomId;
+
+    private String name;
+
+    private String createdBy;
+
+    private List<String> memberIds = new ArrayList<>();
+
+    private List<Message> messages = new ArrayList<>();
 }

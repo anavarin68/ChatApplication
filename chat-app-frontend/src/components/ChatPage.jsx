@@ -4,6 +4,7 @@ import {
   MdKeyboardArrowDown,
   MdKeyboardArrowUp,
   MdNotificationsNone,
+  MdShare,
   MdSend,
 } from "react-icons/md";
 import { useState, useRef, useEffect, useLayoutEffect } from "react";
@@ -27,7 +28,7 @@ function playMessageSound() {
     const oscillator = audioContext.createOscillator();
     const gain = audioContext.createGain();
     oscillator.frequency.value = 660;
-    gain.gain.setValueAtTime(0.2, audioContext.currentTime);
+    gain.gain.setValueAtTime(0.1, audioContext.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.2);
     oscillator.connect(gain);
     gain.connect(audioContext.destination);
@@ -49,9 +50,8 @@ const ChatPage = ({ embedded = false }) => {
   const {
     connected,
     roomId,
+    roomName,
     currentUser,
-    setConnected,
-    clearSession,
   } = useChatContext();
   const navigate = useNavigate();
 
@@ -122,7 +122,7 @@ const ChatPage = ({ embedded = false }) => {
 
   useEffect(() => {
     if (!connected || !roomId || !currentUser) {
-      navigate("/", { replace: true });
+      navigate("/login", { replace: true });
     }
   }, [connected, roomId, currentUser, navigate]);
 
@@ -292,9 +292,10 @@ const ChatPage = ({ embedded = false }) => {
 
     const socket = new SockJS(`${baseURL}/chat`);
     const client = Stomp.over(socket);
+    const token = localStorage.getItem("authToken");
 
     client.connect(
-      {},
+      token ? { Authorization: `Bearer ${token}` } : {},
       () => {
         setStompClient(client);
         toast.success("Connected to chat!");
@@ -347,32 +348,30 @@ const ChatPage = ({ embedded = false }) => {
 
   //send message handle
   const sendMessage = () => {
-    if (stompClient && connected && input.trim()) {
-      console.log("Sending message:", input);
-      const message = {
-        sender: currentUser,
-        content: input,
-        roomId: roomId,
-      };
-      stompClient.send(
-        `/app/sendMessage/${roomId}`,
-        {},
-        JSON.stringify(message),
-      );
+    if (!input.trim()) return;
+    if (!connected || !stompClient?.connected) {
+      toast.error("Chat is still connecting. Please try again.");
+      return;
+    }
+
+    const message = {
+      sender: currentUser,
+      content: input.trim(),
+      roomId,
+    };
+
+    try {
+      stompClient.publish({
+        destination: `/app/sendMessage/${roomId}`,
+        body: JSON.stringify(message),
+      });
       setInput("");
       setShowEmojiPicker(false);
       localStorage.removeItem(messageDraftKey);
+    } catch (error) {
+      console.error("Unable to send message:", error);
+      toast.error("Unable to send message. Please try again.");
     }
-  };
-
-  // handle logout
-  const handleLogout = () => {
-    setConnected(false);
-    clearSession();
-    setStompClient(null);
-
-    toast.success("You have left the room.");
-    navigate("/");
   };
 
 
@@ -562,23 +561,24 @@ const loadOlderMessages = async () => {
 
   return (
     <div
-      className={`bg-[#08111f] text-slate-100 ${
+      className={`relative bg-[#08111f] text-slate-100 ${
         embedded ? "h-full" : "min-h-screen"
       }`}
     >
       <header className="sticky top-0 z-10 border-b border-white/10 bg-[#08111f]/90 px-4 py-2.5 backdrop-blur-xl sm:px-6">
-        <div className="mx-auto flex max-w-4xl items-center justify-between">
-          <div className="min-w-0">
+        <div className="mx-auto grid max-w-4xl grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-2 lg:flex lg:justify-between">
+          <div className="col-start-2 min-w-0 w-full max-w-none justify-self-center lg:static lg:col-auto lg:w-auto lg:translate-x-0 lg:justify-self-auto">
             <div className="flex items-center gap-2">
               <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.7)]" />
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-white">{roomId}</p>
-                <p className="truncate text-xs text-slate-500">{currentUser}</p>
+                <p className="truncate text-sm font-semibold text-white lg:text-left">
+                  {roomName || "Chat room"}
+                </p>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="col-start-3 flex items-center justify-self-end gap-1.5 sm:gap-3 lg:col-auto lg:justify-self-auto">
             <button
               type="button"
               onClick={enableNotifications}
@@ -595,16 +595,12 @@ const loadOlderMessages = async () => {
             <button
               type="button"
               onClick={shareRoom}
-              className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
+              aria-label="Share room"
+              title="Share room"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-slate-300 transition hover:bg-white/10 hover:text-white sm:h-auto sm:w-auto sm:px-3 sm:py-1.5 sm:text-xs sm:font-medium"
             >
-              Share Room
-            </button>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="rounded-lg bg-red-500/90 px-3 py-1.5 text-xs font-semibold text-white shadow-lg shadow-red-950/20 transition hover:bg-red-400 focus:outline-none focus:ring-2 focus:ring-red-300/50"
-            >
-              Leave
+              <MdShare size={18} className="sm:hidden" />
+              <span className="hidden sm:inline">Share Room</span>
             </button>
           </div>
         </div>
@@ -617,11 +613,6 @@ const loadOlderMessages = async () => {
           embedded ? "h-[calc(100%_-_73px)]" : "h-[calc(100vh-73px)]"
         }`}
       >
-        <div className="mb-8 flex items-center gap-3 text-xs text-slate-500">
-          <span className="h-px flex-1 bg-white/10" />
-          <span>{messages.length ? `${messages.length} messages` : "Start the conversation"}</span>
-          <span className="h-px flex-1 bg-white/10" />
-        </div>
 
         {loadingMessages && (
             <p
@@ -688,29 +679,33 @@ const loadOlderMessages = async () => {
         </div>
       </main>
 
-      {showScrollTop && (
-        <button
-          type="button"
-          onClick={scrollToTop}
-          aria-label="Scroll to top"
-          className="animate-scroll-control fixed left-1/2 top-[4.75rem] z-20 flex h-7 w-7 -translate-x-1/2 items-center justify-center text-cyan-300 transition duration-200 hover:scale-125 hover:text-cyan-200 focus:scale-125 focus:outline-none focus:ring-2 focus:ring-cyan-300/50 active:scale-90"
-        >
-          <MdKeyboardArrowUp size={22} />
-        </button>
-      )}
+      <div className="pointer-events-none fixed inset-x-0 top-[4.75rem] bottom-24 z-20 px-4 sm:px-6">
+        <div className="relative mx-auto h-full max-w-4xl">
+          {showScrollTop && (
+            <button
+              type="button"
+              onClick={scrollToTop}
+              aria-label="Scroll to top"
+              className="pointer-events-auto absolute left-1/2 top-0 flex h-8 w-8 -translate-x-1/2 items-center justify-center text-cyan-300 transition duration-200 hover:scale-125 hover:text-cyan-200 focus:scale-125 focus:outline-none focus:ring-2 focus:ring-cyan-300/50 active:scale-90"
+            >
+              <MdKeyboardArrowUp size={22} />
+            </button>
+          )}
 
-      {showScrollBottom && (
-        <button
-          type="button"
-          onClick={scrollToBottom}
-          aria-label="Scroll to bottom"
-          className="animate-scroll-control fixed bottom-24 left-1/2 z-20 flex h-7 w-7 -translate-x-1/2 items-center justify-center text-cyan-300 transition duration-200 hover:scale-125 hover:text-cyan-200 focus:scale-125 focus:outline-none focus:ring-2 focus:ring-cyan-300/50 active:scale-90"
-        >
-          <MdKeyboardArrowDown size={22} />
-        </button>
-      )}
+          {showScrollBottom && (
+            <button
+              type="button"
+              onClick={scrollToBottom}
+              aria-label="Scroll to bottom"
+              className="pointer-events-auto absolute bottom-0 left-1/2 flex h-8 w-8 -translate-x-1/2 items-center justify-center text-cyan-300 transition duration-200 hover:scale-125 hover:text-cyan-200 focus:scale-125 focus:outline-none focus:ring-2 focus:ring-cyan-300/50 active:scale-90"
+            >
+              <MdKeyboardArrowDown size={22} />
+            </button>
+          )}
+        </div>
+      </div>
 
-      <div className="fixed bottom-0 left-0 z-10 w-full border-t border-white/10 bg-[#08111f]/90 px-3 py-3 backdrop-blur-xl sm:px-6">
+      <div className={`${embedded ? "absolute" : "fixed"} bottom-0 left-0 z-10 w-full border-t border-white/10 bg-[#08111f]/90 px-3 py-3 backdrop-blur-xl sm:px-6`}>
         <div className="relative mx-auto max-w-4xl">
           {showEmojiPicker && (
             <div
@@ -745,7 +740,7 @@ const loadOlderMessages = async () => {
             </div>
           )}
 
-          <div className="flex h-12 items-center gap-1.5 rounded-xl border border-white/10 bg-slate-900/80 px-2 shadow-xl shadow-black/20 transition focus-within:border-cyan-300/30 focus-within:ring-2 focus-within:ring-cyan-300/10">
+          <div className="mx-auto flex h-12 w-full max-w-4xl items-center gap-1.5 rounded-xl border border-white/10 bg-slate-900/80 px-2 shadow-xl shadow-black/20 transition focus-within:border-cyan-300/30 focus-within:ring-2 focus-within:ring-cyan-300/10">
           <textarea
             value={input}
             onChange={(e) => {

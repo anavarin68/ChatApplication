@@ -9,6 +9,13 @@ import com.substring.chat.chat_app_backend.repositories.RoomRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import com.substring.chat.chat_app_backend.entities.User;
+import com.substring.chat.chat_app_backend.payload.CreateRoomRequest;
+import com.substring.chat.chat_app_backend.repositories.UserRepository;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import com.substring.chat.chat_app_backend.payload.JoinRoomRequest;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -19,45 +26,133 @@ import java.util.UUID;
 @CrossOrigin(AppConstants.FRONT_END_BASE_URL)
 public class RoomController {
 
-    private RoomRepository roomRepository;
+    private final RoomRepository roomRepository;
+    private final UserRepository userRepository;
 
-    public RoomController(RoomRepository roomRepository) {
+    public RoomController(
+            RoomRepository roomRepository,
+            UserRepository userRepository) {
         this.roomRepository = roomRepository;
+        this.userRepository = userRepository;
     }
 
     //create room
     @PostMapping
-    public ResponseEntity<?> createRoom(@RequestBody String roomId){
-        if(roomRepository.findByRoomId(roomId)!=null){
-            //room is already there
-            return ResponseEntity.badRequest().body("Room already exists!");
+    public ResponseEntity<?> createRoom(
+            @RequestBody CreateRoomRequest request,
+            Authentication authentication) {
+
+        if (request.getName() == null || request.getName().isBlank()) {
+            return ResponseEntity.badRequest().body("Room name is required.");
         }
 
-        System.out.println("Creating room: " + roomId);
+        String email = authentication.getName();
 
-        //create new room
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() ->
+                        new IllegalArgumentException("User not found."));
+
+        String roomId = UUID.randomUUID().toString();
+
         Room room = new Room();
         room.setRoomId(roomId);
+        room.setName(request.getName().trim());
+        room.setCreatedBy(user.getId());
+        room.setMemberIds(new ArrayList<>(List.of(user.getId())));
+        room.setMessages(new ArrayList<>());
+
         Room savedRoom = roomRepository.save(room);
 
-        System.out.println("Saved room ID: " + savedRoom.getRoomId());
-        System.out.println("MongoDB document ID: " + savedRoom.getId());
-
-        Room verifiedRoom = roomRepository.findByRoomId(roomId);
-        System.out.println("Found after save: " + (verifiedRoom != null));
-
-        return ResponseEntity.status(HttpStatus.CREATED).body(room);
+        return ResponseEntity.status(HttpStatus.CREATED).body(savedRoom);
     }
+
+    //get all rooms joined by a particular user
+    @GetMapping("/my-rooms")
+    public ResponseEntity<?> getMyRooms(Authentication authentication) {
+
+        String email = authentication.getName();
+
+        User user = userRepository.findByEmail(email)
+                .orElse(null);
+
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body("User not found.");
+        }
+
+        List<Room> rooms =
+                roomRepository.findByMemberIdsContaining(user.getId());
+
+        return ResponseEntity.ok(rooms);
+    }
+
 
     //get room
     @GetMapping("/{roomId}")
-    public ResponseEntity<?> joinRoom( @PathVariable String roomId){
-        Room room = roomRepository.findByRoomId((roomId));
-        if(room==null){
-            return ResponseEntity.badRequest()
-                    .body("Room not found!!");
+    public ResponseEntity<?> getRoom(
+            @PathVariable String roomId,
+            Authentication authentication) {
+
+        Room room = roomRepository.findByRoomId(roomId);
+
+        if (room == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body("Room not found.");
         }
+
+        String email = authentication.getName();
+
+        User user = userRepository.findByEmail(email)
+                .orElse(null);
+
+        if (user == null || room.getMemberIds() == null
+                || !room.getMemberIds().contains(user.getId())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body("You are not a member of this room.");
+        }
+
         return ResponseEntity.ok(room);
+    }
+
+    //joinroom with invitation id
+    @PostMapping("/join")
+    public ResponseEntity<?> joinExistingRoom(
+            @RequestBody JoinRoomRequest request,
+            Authentication authentication) {
+
+        if (request.getRoomId() == null || request.getRoomId().isBlank()) {
+            return ResponseEntity.badRequest().body("Room ID is required.");
+        }
+
+        String email = authentication.getName();
+
+        User user = userRepository.findByEmail(email)
+                .orElse(null);
+
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body("User not found.");
+        }
+
+        Room room = roomRepository.findByRoomId(request.getRoomId().trim());
+
+        if (room == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body("Room not found.");
+        }
+
+        if (room.getMemberIds() == null) {
+            room.setMemberIds(new ArrayList<>());
+        }
+
+        if (room.getMemberIds().contains(user.getId())) {
+            return ResponseEntity.ok("You are already a member of this room.");
+        }
+
+        room.getMemberIds().add(user.getId());
+        Room updatedRoom = roomRepository.save(room);
+
+        return ResponseEntity.ok(updatedRoom);
     }
 
 
@@ -66,7 +161,8 @@ public class RoomController {
     public ResponseEntity<MessagePageResponse> getMessages(
             @PathVariable String roomId,
             @RequestParam(required = false) String cursor,
-            @RequestParam(defaultValue = "20") int size){
+            @RequestParam(defaultValue = "20") int size,
+            Authentication authentication) {
 
         if (size < 1 || size > 100) {
             return ResponseEntity.badRequest().build();
@@ -74,8 +170,18 @@ public class RoomController {
 
         Room room = roomRepository.findByRoomId(roomId);
 
-        if(room==null){
-            return ResponseEntity.badRequest().build();
+        if (room == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+
+        String email = authentication.getName();
+
+        User user = userRepository.findByEmail(email)
+                .orElse(null);
+
+        if (user == null || room.getMemberIds() == null
+                || !room.getMemberIds().contains(user.getId())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 
         List<Message> messages = room.getMessages();
