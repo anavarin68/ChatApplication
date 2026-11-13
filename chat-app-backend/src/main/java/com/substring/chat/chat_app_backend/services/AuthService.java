@@ -66,7 +66,14 @@ public class AuthService {
 
         userRepository.save(user);
 
-        emailService.sendVerificationEmail(email, rawToken);
+        try {
+            emailService.sendVerificationEmail(email, rawToken);
+        } catch (Exception e) {
+            System.err.println("Failed to send verification email: " + e.getMessage());
+            userRepository.delete(user);
+            throw new IllegalArgumentException(
+                    "Could not send the verification email. Please try again.");
+        }
 
         return "Registration successful. Please check your email to verify your account.";
     }

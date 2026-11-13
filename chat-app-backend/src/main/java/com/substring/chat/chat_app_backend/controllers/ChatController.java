@@ -17,7 +17,6 @@ import com.substring.chat.chat_app_backend.services.MessageEncryptionService;
 import java.time.LocalDateTime;
 
 @Controller
-@CrossOrigin(AppConstants.FRONT_END_BASE_URL)
 public class ChatController {
 
     private RoomRepository roomRepository;
