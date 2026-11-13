@@ -561,10 +561,10 @@ const loadOlderMessages = async () => {
 
   return (
     <div
-      className={`relative bg-[#08111f] text-slate-100 ${
-        embedded ? "h-full" : "min-h-screen"
-      }`}
-    >
+  className={`relative flex flex-col overflow-hidden bg-[#08111f] text-slate-100 ${
+    embedded ? "h-full min-h-0" : "h-dvh"
+  }`}
+>
       <header className="sticky top-0 z-10 border-b border-white/10 bg-[#08111f]/90 px-4 py-2.5 backdrop-blur-xl sm:px-6">
         <div className="mx-auto grid max-w-4xl grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-2 lg:flex lg:justify-between">
           <div className="col-start-2 min-w-0 w-full max-w-none justify-self-center lg:static lg:col-auto lg:w-auto lg:translate-x-0 lg:justify-self-auto">
@@ -609,9 +609,7 @@ const loadOlderMessages = async () => {
       <main
         ref={chatBoxRef}
         onScroll={handleChatScroll}
-        className={`hide-scrollbar mx-auto max-w-4xl overflow-y-auto px-4 pb-20 pt-8 sm:px-6 ${
-          embedded ? "h-[calc(100%_-_73px)]" : "h-[calc(100vh-73px)]"
-        }`}
+        className="hide-scrollbar mx-auto w-full max-w-4xl min-h-0 flex-1 overflow-y-auto px-4 pb-24 pt-8 sm:px-6"
       >
 
         {loadingMessages && (
@@ -705,7 +703,7 @@ const loadOlderMessages = async () => {
         </div>
       </div>
 
-      <div className={`${embedded ? "absolute" : "fixed"} bottom-0 left-0 z-10 w-full border-t border-white/10 bg-[#08111f]/90 px-3 py-3 backdrop-blur-xl sm:px-6`}>
+      <div className="relative z-30 w-full shrink-0 border-t border-white/10 bg-[#08111f]/95 px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-xl sm:px-6">
         <div className="relative mx-auto max-w-4xl">
           {showEmojiPicker && (
             <div
